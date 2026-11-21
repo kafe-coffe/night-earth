@@ -386,7 +386,7 @@ function target() {
   var i = 0;
   while (i < n - 2 && y >= mids[i + 1]) i++;
   var f = (y - mids[i]) / (mids[i + 1] - mids[i]);
-  var e = smooth(0.12, 0.88, f);
+  var e = smooth(0.04, 0.96, f);
   return {
     lon: lerp(keys[i].lon, keys[i + 1].lon, e),
     lat: lerp(keys[i].lat, keys[i + 1].lat, e),
@@ -716,13 +716,41 @@ function rotMatrix(lonDeg, latDeg, rollDeg) {
   return out;
 }
 
+/* inertial wheel scrolling: the page glides to its target instead of jumping in steps */
+var sTarget = 0, sActive = false, sSet = -1;
+function pageY() { return window.pageYOffset || document.documentElement.scrollTop || 0; }
+function maxY() { return Math.max(0, document.documentElement.scrollHeight - window.innerHeight); }
+if (!reduce) {
+  window.addEventListener("wheel", function (e) {
+    if (e.ctrlKey || e.metaKey || e.defaultPrevented || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+    var dy = e.deltaY;
+    if (e.deltaMode === 1) dy *= 32; else if (e.deltaMode === 2) dy *= window.innerHeight;
+    e.preventDefault();
+    if (!sActive) sTarget = pageY();
+    sTarget = Math.min(maxY(), Math.max(0, sTarget + dy));
+    sActive = true;
+  }, { passive: false });
+  window.addEventListener("scroll", function () {
+    if (sActive && Math.abs(pageY() - sSet) <= 1.5) return;
+    sActive = false;
+  }, { passive: true });
+}
+function stepScroll(dt) {
+  if (!sActive) return;
+  var y = pageY(), ny = y + (sTarget - y) * (1 - Math.exp(-dt * 8));
+  if (Math.abs(sTarget - ny) < 0.5) { ny = sTarget; sActive = false; }
+  sSet = ny;
+  window.scrollTo(0, ny);
+}
+
 var cur = { lon: keys[0].lon, lat: keys[0].lat };
 var last = 0, t0 = performance.now();
 function draw(now) {
   var dt = Math.min(0.1, (now - last) / 1000 || 0.016); last = now;
+  stepScroll(dt);
   var tg = target();
   setActive(tg.idx);
-  var k = reduce ? 1 : 1 - Math.exp(-dt * 6);
+  var k = reduce ? 1 : 1 - Math.exp(-dt * 5);
   cur.lon += (tg.lon - cur.lon) * k;
   cur.lat += (tg.lat - cur.lat) * k;
   var sway = reduce ? 0 : Math.sin((now - t0) / 9000) * 1.2;
